@@ -1,64 +1,53 @@
-from fastapi import FastAPI, File, UploadFile, Header, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-import csv
+import pandas as pd
 import io
+import os
 
-app = FastAPI()
+app = FastAPI(title="SecureUpload Data Processor")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["POST"],
+    allow_credentials=True,
+    allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
 
-VALID_TOKEN = "db1o9jk20deqa1u9"
-VALID_EXTENSIONS = {".csv", ".json", ".txt"}
-MAX_SIZE = 56 * 1024  # 56KB
-EMAIL = "24f1000749@ds.study.iitm.ac.in"
+SECRET_TOKEN = "db1o9jk20deqa1u9"
 
+@app.get("/")
+async def root():
+    return {"message": "SecureUpload API - POST to /upload with file field"}
 
-@app.post("/upload")
+@app.post("/upload/")
 async def upload_file(
     file: UploadFile = File(...),
-    x_upload_token_3239: str = Header(default=None),
+    x_upload_token_3239: str = Header(None)
 ):
-    # Authentication
-    if x_upload_token_3239 != VALID_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    # File type check
-    filename = file.filename or ""
-    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in VALID_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Bad Request: invalid file type")
-
-    # Read content
-    content = await file.read()
-
-    # File size check
-    if len(content) > MAX_SIZE:
+    if not x_upload_token_3239 or x_upload_token_3239 != SECRET_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized - Invalid token")
+    
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in {'.csv', '.json', '.txt'}:
+        raise HTTPException(status_code=400, detail="Bad Request - Invalid file type")
+    
+    contents = await file.read()
+    if len(contents) > 56 * 1024:
         raise HTTPException(status_code=413, detail="Payload Too Large")
-
-    # Parse CSV
-    if ext == ".csv":
-        text = content.decode("utf-8")
-        reader = csv.DictReader(io.StringIO(text))
-        rows = list(reader)
-        columns = reader.fieldnames or []
-        total_value = round(sum(float(r["value"]) for r in rows), 2)
-        category_counts = {}
-        for r in rows:
-            cat = r["category"]
-            category_counts[cat] = category_counts.get(cat, 0) + 1
-
-        return {
-            "email": EMAIL,
-            "filename": filename,
-            "rows": len(rows),
-            "columns": list(columns),
-            "totalValue": total_value,
-            "categoryCounts": category_counts,
-        }
-
-    return {"email": EMAIL, "filename": filename}
+    
+    file.file.seek(0)
+    
+    if file_ext != '.csv':
+        return {"message": f"File '{file.filename}' validated (non-CSV)"}
+    
+    df = pd.read_csv(io.BytesIO(contents))
+    
+    return {
+        "email": "24f1000749@ds.study.iitm.ac.in",
+        "filename": file.filename,
+        "rows": len(df),
+        "columns": df.columns.tolist(),
+        "totalValue": round(float(df['value'].sum()), 2),
+        "categoryCounts": df['category'].value_counts().to_dict()
+    }
