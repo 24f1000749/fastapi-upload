@@ -9,10 +9,11 @@ app = FastAPI(title="SecureUpload Data Processor")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["POST", "GET"],
+    allow_credentials=False,  # ← CHANGED
+    allow_methods=["*"],      # ← CHANGED (was ["POST", "GET"])
     allow_headers=["*"],
 )
+
 
 SECRET_TOKEN = "db1o9jk20deqa1u9"
 
